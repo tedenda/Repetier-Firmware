@@ -909,6 +909,72 @@ STEPPER_CURRENT_CONTROL
 #endif
 
 /****************************************************************************************
+* Sethi 3D_1 Extruder
+*
+****************************************************************************************/
+#if MOTHERBOARD == 72
+#define KNOWN_BOARD 1
+
+#if !defined(__AVR_ATmega644P__) && !defined(__AVR_ATmega644__) && !defined(__AVR_ATmega1284P__)
+    #error Oops!  Make sure you have 'Sethi' selected from the 'Tools -> Boards' menu.
+#endif
+
+//x axis pins
+#define X_STEP_PIN      19
+#define X_DIR_PIN       18
+#define X_ENABLE_PIN    24
+#define X_MIN_PIN       2
+#define X_MAX_PIN       6
+
+//y axis pins
+#define Y_STEP_PIN      23
+#define Y_DIR_PIN       22
+#define Y_ENABLE_PIN    24
+#define Y_MIN_PIN       0
+#define Y_MAX_PIN       2
+
+//z axis pins
+#define Z_STEP_PIN      26
+#define Z_DIR_PIN       25
+#define Z_ENABLE_PIN    24
+#define Z_MIN_PIN       1
+#define Z_MAX_PIN       0
+
+//extruder pins
+#define E0_STEP_PIN      28
+#define E0_DIR_PIN       27
+#define E0_ENABLE_PIN    24
+#define TEMP_0_PIN      1
+#define TEMP_1_PIN      2
+#define HEATER_0_PIN    4
+#define HEATER_1_PIN    3
+
+
+#define SDPOWER          -1
+#define SDSS          -1 // SCL pin of I2C header
+#define LED_PIN         -1
+
+#define FAN_PIN         31
+#define PS_ON_PIN       15
+#define E0_PINS E0_STEP_PIN,E0_DIR_PIN,E0_ENABLE_PIN,
+#define E1_PINS
+
+    //our pin for debugging.
+
+    #define DEBUG_PIN        0
+
+    //our RS485 pins
+    #define TX_ENABLE_PIN	12
+    #define RX_ENABLE_PIN	13
+
+#define SCK_PIN          7
+#define SDSSORIG         4
+#define MISO_PIN         6
+#define MOSI_PIN         5
+
+#endif
+
+/****************************************************************************************
 * Teensylu 0.7 pin assingments (ATMEGA90USB)
 * Requires the Teensyduino software with Teensy2.0++ selected in arduino IDE!
 ****************************************************************************************/
@@ -1376,6 +1442,149 @@ STEPPER_CURRENT_CONTROL
 #define STEPPER_CURRENT_CONTROL CURRENT_CONTROL_DIGIPOT
 
 #endif
+
+
+/***************************************************************************************
+*PiBot for Repetier pins assignment
+*illustration :
+* PiBot for Repetier V1.0             =314
+* PiBot for Repetier V1.4              =315
+***************************************************************************************/
+#if MOTHERBOARD == 315
+#define MOTHERBOARD 314
+#define PiBot_V_1_4
+#endif
+#if MOTHERBOARD == 314
+#define KNOWN_BOARD 1
+#define PiBot true
+#ifndef __AVR_ATmega1280__
+#ifndef __AVR_ATmega2560__
+#error Oops!  Make sure you have 'Arduino Mega' selected from the 'Tools -> Boards' menu.
+#endif
+#endif
+
+#ifdef PiBot_V_1_4
+#define X_STEP_PIN         4
+#define X_DIR_PIN          17
+#define X_ENABLE_PIN       16
+#define X_MIN_PIN          37
+#define X_MAX_PIN          34
+
+#define Y_STEP_PIN         56
+#define Y_DIR_PIN          55
+#define Y_ENABLE_PIN       54
+#define Y_MIN_PIN          36
+#define Y_MAX_PIN          33
+
+#define Z_STEP_PIN         59
+#define Z_DIR_PIN          58
+#define Z_ENABLE_PIN       57
+#define Z_MIN_PIN          35
+#define Z_MAX_PIN          32
+
+#define E0_STEP_PIN         24
+#define E0_DIR_PIN          23
+#define E0_ENABLE_PIN       22
+
+#define E1_STEP_PIN         27
+#define E1_DIR_PIN          26
+#define E1_ENABLE_PIN       25
+//uncomment when use 3rd extruder
+#define E2_STEP_PIN         15
+#define E2_DIR_PIN          14
+#define E2_ENABLE_PIN       39
+
+#define E3_STEP_PIN         41
+#define E3_DIR_PIN          38
+#define E3_ENABLE_PIN       13
+
+#define SDPOWER            -1
+#define SDCARDDETECT 	    10
+
+#define LED_PIN            40
+#define FAN_PIN            7        ////*****fan0
+//uncomment when the 2nd fan used - works only without heated bed!
+#define FAN2_PIN           2
+#define PS_ON_PIN          30
+#define KILL_PIN           -1
+
+#define HEATER_0_PIN       3    ////**** Extuder1
+#define HEATER_1_PIN       12   ////***Extuder2
+#define HEATER_2_PIN       6    ////***Bed
+//uncomment when the 3rd extruder used
+#define HEATER_3_PIN       9   ////***Extuder3
+//uncomment when the 4th extruder used
+#define HEATER_4_PIN       11   ////***Extuder4
+
+#define TEMP_0_PIN         14   // ANALOG NUMBERING   ////***Extuder1
+#define TEMP_1_PIN         15   // ANALOG NUMBERING   ////***Bed
+#define TEMP_2_PIN         13   // ANALOG NUMBERING   ////***Extuder2
+//uncomment when 3 extruder used
+#define TEMP_3_PIN         12   // ANALOG NUMBERING   ////***Extuder3
+//uncomment when 4 extruder used
+#define TEMP_4_PIN         11   // ANALOG NUMBERING   ////***Extuder4
+#define E0_PINS E0_STEP_PIN,E0_DIR_PIN,E0_ENABLE_PIN,
+#define E1_PINS E1_STEP_PIN,E1_DIR_PIN,E1_ENABLE_PIN,
+#define E2_PINS E2_STEP_PIN,E2_DIR_PIN,E2_ENABLE_PIN,
+#define SDCARDDETECT        10
+#else
+#define X_STEP_PIN         54
+#define X_DIR_PIN          55
+#define X_ENABLE_PIN       38
+#define X_MIN_PIN          3
+#define X_MAX_PIN          2
+
+#define Y_STEP_PIN         60
+#define Y_DIR_PIN          61
+#define Y_ENABLE_PIN       56
+#define Y_MIN_PIN          14
+#define Y_MAX_PIN          15
+
+#define Z_STEP_PIN         46
+#define Z_DIR_PIN          48
+#define Z_ENABLE_PIN       62
+#define Z_MIN_PIN          18
+#define Z_MAX_PIN          19
+
+#define E0_STEP_PIN         26
+#define E0_DIR_PIN          28
+#define E0_ENABLE_PIN       24
+
+#define E1_STEP_PIN         36
+#define E1_DIR_PIN          34
+#define E1_ENABLE_PIN       30
+
+#define SDPOWER            -1
+#define SDCARDDETECT 	    49
+
+#define LED_PIN            13
+#define FAN_PIN            7        ////*****fan
+#define PS_ON_PIN          12
+#define KILL_PIN           -1
+
+#define HEATER_0_PIN       8    ////**** Extuder1
+#define HEATER_1_PIN       10    ////***Extuder2
+#define HEATER_2_PIN       9   ////***Bed
+#define TEMP_0_PIN         13   // ANALOG NUMBERING   ////***Extuder1
+#define TEMP_1_PIN         15   // ANALOG NUMBERING   ////***Bed
+#define TEMP_2_PIN         14   // ANALOG NUMBERING   ////***Extuder2
+
+#define E0_PINS E0_STEP_PIN,E0_DIR_PIN,E0_ENABLE_PIN,
+#define E1_PINS E1_STEP_PIN,E1_DIR_PIN,E1_ENABLE_PIN,
+#define SDCARDDETECT       49
+
+#endif     ///////****** end PiBot for Repetier V1.4
+////***ISP for TFcard
+#define SDSS             53
+#define SCK_PIN          52
+#define MISO_PIN         50
+#define MOSI_PIN         51
+
+#define SDSUPPORT true
+#define SDCARDDETECTINVERTED false
+
+#endif   ///////******end  PiBot for Repetier
+
 
 #if MOTHERBOARD == 401
 #ifndef __SAM3X8E__
