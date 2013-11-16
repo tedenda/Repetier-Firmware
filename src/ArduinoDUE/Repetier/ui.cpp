@@ -65,7 +65,11 @@ void beep(uint8_t duration,uint8_t count)
     for(uint8_t i=0; i<count; i++)
     {
 #if BEEPER_TYPE==1
+#if defined(BEEPER_TYPE_INVERTING) && BEEPER_TYPE_INVERTING
+        WRITE(BEEPER_PIN,LOW);
+#else
         WRITE(BEEPER_PIN,HIGH);
+#endif
 #else
 #if UI_DISPLAY_I2C_CHIPTYPE==0
 #if BEEPER_ADDRESS == UI_DISPLAY_I2C_ADDRESS
@@ -81,7 +85,11 @@ void beep(uint8_t duration,uint8_t count)
 #endif
         HAL::delayMilliseconds(duration);
 #if BEEPER_TYPE==1
+#if defined(BEEPER_TYPE_INVERTING) && BEEPER_TYPE_INVERTING
+        WRITE(BEEPER_PIN,HIGH);
+#else
         WRITE(BEEPER_PIN,LOW);
+#endif
 #else
 #if UI_DISPLAY_I2C_CHIPTYPE==0
 
@@ -103,6 +111,21 @@ void beep(uint8_t duration,uint8_t count)
 #endif
 #endif
 #endif
+}
+
+bool UIMenuEntry::showEntry() const
+{
+    bool ret = true;
+    uint8_t f,f2;
+    f = HAL::readFlashByte((const prog_char*)&filter);
+    if(f!=0)
+        ret = (f & Printer::menuMode) != 0;
+    f2 = HAL::readFlashByte((const prog_char*)&nofilter);
+    if(ret && f2!=0)
+    {
+        ret = (f2 & Printer::menuMode) == 0;
+    }
+    return ret;
 }
 
 #if UI_DISPLAY_TYPE!=0
@@ -171,7 +194,9 @@ const uint8_t character_temperature[8] PROGMEM = {4,10,10,10,14,31,31,14};
 // ..... 0
 // ..... 0
 const uint8_t character_folder[8] PROGMEM = {0,28,31,17,17,31,0,0};
-const long baudrates[] PROGMEM = {9600,14400,19200,28800,38400,56000,57600,76800,111112,115200,128000,230400,250000,256000,0};
+const long baudrates[] PROGMEM = {9600,14400,19200,28800,38400,56000,57600,76800,111112,115200,128000,230400,250000,256000,
+                                  460800,500000,921600,1000000,1500000,0
+                                 };
 
 #define LCD_ENTRYMODE			0x04			/**< Set entrymode */
 
@@ -821,7 +846,11 @@ void UIDisplay::parse(char *txt,bool ram)
 #endif
             addFloat(fvalue,3,0 /*UI_TEMP_PRECISION*/);
             break;
-
+#if FAN_PIN > -1
+        case 'F': // FAN speed
+            if(c2=='s') addInt(Printer::getFanSpeed()*100/255,3);
+            break;
+#endif
         case 'f':
             if(c2=='x') addFloat(Printer::maxFeedrate[0],5,0);
             else if(c2=='y') addFloat(Printer::maxFeedrate[1],5,0);
@@ -1250,9 +1279,14 @@ void UIDisplay::refreshPage()
         mtype = pgm_read_byte((void*)&(men->menuType));
         uint8_t offset = menuTop[menuLevel];
         UIMenuEntry **entries = (UIMenuEntry**)pgm_read_word(&(men->entries));
-        for(r=0; r+offset<nr && r<UI_ROWS; r++)
+        for(r=0; r+offset<nr && r<UI_ROWS; )
         {
             UIMenuEntry *ent =(UIMenuEntry *)pgm_read_word(&(entries[r+offset]));
+            if(!ent->showEntry())
+            {
+                offset++;
+                continue;
+            }
             unsigned char entType = pgm_read_byte(&(ent->menuType));
             unsigned int entAction = pgm_read_word(&(ent->action));
             col=0;
@@ -1272,6 +1306,7 @@ void UIDisplay::refreshPage()
                 printCols[UI_COLS-1]=CHAR_RIGHT; // Arrow right
             }
             printRow(r,(char*)printCols);
+            r++;
         }
     }
 #if SDSUPPORT
@@ -1443,19 +1478,34 @@ void UIDisplay::nextPreviousAction(int8_t next)
     }
     UIMenu *men = (UIMenu*)menu[menuLevel];
     uint8_t nr = pgm_read_word_near(&(men->numEntries));
-    uint8_t mtype = pgm_read_byte(&(men->menuType));
+    uint8_t mtype = HAL::readFlashByte((const prog_char*)&(men->menuType));
     UIMenuEntry **entries = (UIMenuEntry**)pgm_read_word(&(men->entries));
     UIMenuEntry *ent =(UIMenuEntry *)pgm_read_word(&(entries[menuPos[menuLevel]]));
-    unsigned char entType = pgm_read_byte(&(ent->menuType));// 0 = Info, 1 = Headline, 2 = submenu ref, 3 = direct action command
+    UIMenuEntry *testEnt;
+    uint8_t entType = HAL::readFlashByte((const prog_char*)&(ent->menuType));// 0 = Info, 1 = Headline, 2 = submenu ref, 3 = direct action command
     int action = pgm_read_word(&(ent->action));
     if(mtype==2 && activeAction==0)   // browse through menu items
     {
         if((UI_INVERT_MENU_DIRECTION && next<0) || (!UI_INVERT_MENU_DIRECTION && next>0))
         {
-            if(menuPos[menuLevel]+1<nr) menuPos[menuLevel]++;
+            while(menuPos[menuLevel]+1<nr)
+            {
+                menuPos[menuLevel]++;
+                testEnt = (UIMenuEntry *)pgm_read_word(&(entries[menuPos[menuLevel]]));
+                if(testEnt->showEntry())
+                    break;
+            }
         }
         else if(menuPos[menuLevel]>0)
-            menuPos[menuLevel]--;
+        {
+            while(menuPos[menuLevel]>0)
+            {
+                menuPos[menuLevel]--;
+                testEnt = (UIMenuEntry *)pgm_read_word(&(entries[menuPos[menuLevel]]));
+                if(testEnt->showEntry())
+                    break;
+            }
+        }
         if(menuTop[menuLevel]>menuPos[menuLevel])
             menuTop[menuLevel]=menuPos[menuLevel];
         else if(menuTop[menuLevel]+UI_ROWS-1<menuPos[menuLevel])
@@ -1483,6 +1533,9 @@ void UIDisplay::nextPreviousAction(int8_t next)
     int8_t increment = next;
     switch(action)
     {
+    case UI_ACTION_FANSPEED:
+        Commands::setFanSpeed(Printer::getFanSpeed()+increment*3,false);
+        break;
     case UI_ACTION_XPOSITION:
         PrintLine::moveRelativeDistanceInSteps(increment,0,0,0,Printer::homingFeedrate[0],true,true);
         Commands::printCurrentPosition();
@@ -1818,6 +1871,9 @@ void UIDisplay::executeAction(int action)
             }
             break;
         case UI_ACTION_POWER:
+            Commands::waitUntilEndOfAllMoves();
+            SET_OUTPUT(PS_ON_PIN); //GND
+            TOGGLE(PS_ON_PIN);
             break;
         case UI_ACTION_PREHEAT_PLA:
             UI_STATUS(UI_TEXT_PREHEAT_PLA);
@@ -1943,12 +1999,10 @@ void UIDisplay::executeAction(int action)
             }
             break;
         case UI_ACTION_SD_UNMOUNT:
-            sd.sdmode = false;
-            sd.sdactive = false;
+            sd.unmount();
             break;
         case UI_ACTION_SD_MOUNT:
-            sd.sdmode = false;
-            sd.initsd();
+            sd.mount();
             break;
         case UI_ACTION_MENU_SDCARD:
             pushMenu((void*)&ui_menu_sd,false);
@@ -2160,9 +2214,9 @@ void UIDisplay::executeAction(int action)
             long factors[4];
             PrintLine::calculatePlane(factors, Printer::levelingP1, Printer::levelingP2, Printer::levelingP3);
             Com::printFLN(Com::tLevelingCalc);
-            Com::printFLN(Com::tTower1, PrintLine::calcZOffset(factors,-Printer::deltaSin60RadiusSteps, Printer::deltaMinusCos60RadiusSteps) * Printer::invAxisStepsPerMM[2]);
-            Com::printFLN(Com::tTower2, PrintLine::calcZOffset(factors, -Printer::deltaSin60RadiusSteps, Printer::deltaMinusCos60RadiusSteps) * Printer::invAxisStepsPerMM[2]);
-            Com::printFLN(Com::tTower3, PrintLine::calcZOffset(factors, 0, Printer::deltaRadiusSteps) * Printer::invAxisStepsPerMM[2]);
+            Com::printFLN(Com::tTower1, PrintLine::calcZOffset(factors, Printer::deltaAPosXSteps, Printer::deltaAPosYSteps) * Printer::invAxisStepsPerMM[2]);
+            Com::printFLN(Com::tTower2, PrintLine::calcZOffset(factors, Printer::deltaBPosXSteps, Printer::deltaBPosYSteps) * Printer::invAxisStepsPerMM[2]);
+            Com::printFLN(Com::tTower3, PrintLine::calcZOffset(factors, Printer::deltaCPosXSteps, Printer::deltaCPosYSteps) * Printer::invAxisStepsPerMM[2]);
 #endif
             break;
         case UI_ACTION_HEATED_BED_DOWN:
@@ -2204,7 +2258,7 @@ void UIDisplay::executeAction(int action)
             HAL::resetHardware();
             break;
         case UI_ACTION_PAUSE:
-            OUT_P_LN("RequestPause:");
+            Com::printFLN(PSTR("RequestPause:"));
             break;
         case UI_ACTION_WRITE_DEBUG:
             Com::printF(Com::tDebug,(int)GCode::bufferReadIndex);
@@ -2213,6 +2267,10 @@ void UIDisplay::executeAction(int action)
             Com::printF(Com::tComma,(int)GCode::bufferLength);
             Com::printF(Com::tComma,(int)GCode::waitingForResend);
             Com::printFLN(Com::tComma,(int)GCode::commandsReceivingWritePosition);
+            Com::printF(Com::tDebug,Printer::minimumSpeed);
+            Com::printF(Com::tComma,Printer::minimumZSpeed);
+            Com::printF(Com::tComma,(int)PrintLine::linesPos);
+            Com::printFLN(Com::tComma,(int)PrintLine::linesWritePos);
             break;
         }
     refreshPage();

@@ -20,7 +20,7 @@
 #define _EEPROM_H
 
 // Id to distinguish version changes
-#define EEPROM_PROTOCOL_VERSION 4
+#define EEPROM_PROTOCOL_VERSION 6
 
 /** Where to start with our datablock in memory. Can be moved if you
 have problems with other modules using the eeprom */
@@ -95,6 +95,12 @@ have problems with other modules using the eeprom */
 #define EPR_DELTA_TOWERX_OFFSET_STEPS 893
 #define EPR_DELTA_TOWERY_OFFSET_STEPS 895
 #define EPR_DELTA_TOWERZ_OFFSET_STEPS 897
+#define EPR_DELTA_ALPHA_A         901
+#define EPR_DELTA_ALPHA_B         905
+#define EPR_DELTA_ALPHA_C         909
+#define EPR_DELTA_RADIUS_CORR_A   913
+#define EPR_DELTA_RADIUS_CORR_B   917
+#define EPR_DELTA_RADIUS_CORR_C   921
 
 #define EEPROM_EXTRUDER_OFFSET 200
 // bytes per extruder needed, leave some space for future development
@@ -127,7 +133,7 @@ class EEPROM
 #if EEPROM_MODE!=0
     static uint8_t computeChecksum();
     static void writeExtruderPrefix(uint pos);
-    static void writeFloat(uint pos,PGM_P text);
+    static void writeFloat(uint pos,PGM_P text,uint8_t digits=3);
     static void writeLong(uint pos,PGM_P text);
     static void writeInt(uint pos,PGM_P text);
     static void writeByte(uint pos,PGM_P text);
@@ -220,19 +226,19 @@ public:
         return Z_PROBE_Y3;
 #endif
     }
-#if DRIVE_SYSTEM==3
+#if NONLINEAR_SYSTEM
+    static inline int16_t deltaSegmentsPerSecondMove() {
+#if EEPROM_MODE!=0
+        return HAL::eprGetInt16(EPR_DELTA_SEGMENTS_PER_SECOND_MOVE);
+#else
+        return DELTA_SEGMENTS_PER_SECOND_MOVE;
+#endif
+    }
     static inline float deltaDiagonalRodLength() {
 #if EEPROM_MODE!=0
         return HAL::eprGetFloat(EPR_DELTA_DIAGONAL_ROD_LENGTH);
 #else
         return DELTA_DIAGONAL_ROD;
-#endif
-    }
-    static inline float deltaHorizontalRadius() {
-#if EEPROM_MODE!=0
-        return HAL::eprGetFloat(EPR_DELTA_HORIZONTAL_RADIUS);
-#else
-        return DELTA_RADIUS;
 #endif
     }
     static inline int16_t deltaSegmentsPerSecondPrint() {
@@ -242,15 +248,15 @@ public:
         return DELTA_SEGMENTS_PER_SECOND_PRINT;
 #endif
     }
-    static inline int16_t deltaSegmentsPerSecondMove() {
-#if EEPROM_MODE!=0
-        return HAL::eprGetInt16(EPR_DELTA_SEGMENTS_PER_SECOND_MOVE);
-#else
-        return DELTA_SEGMENTS_PER_SECOND_MOVE;
-#endif
-    }
 #endif
 #if DRIVE_SYSTEM==3
+    static inline float deltaHorizontalRadius() {
+#if EEPROM_MODE!=0
+        return HAL::eprGetFloat(EPR_DELTA_HORIZONTAL_RADIUS);
+#else
+        return DELTA_RADIUS;
+#endif
+    }
     static inline int16_t deltaTowerXOffsetSteps() {
 #if EEPROM_MODE!=0
         return HAL::eprGetInt16(EPR_DELTA_TOWERX_OFFSET_STEPS);
@@ -294,6 +300,48 @@ public:
         uint8_t newcheck = computeChecksum();
         if(newcheck!=HAL::eprGetByte(EPR_INTEGRITY_BYTE))
             HAL::eprSetByte(EPR_INTEGRITY_BYTE,newcheck);
+#endif
+    }
+    static inline float deltaAlphaA() {
+#if EEPROM_MODE!=0
+        return HAL::eprGetFloat(EPR_DELTA_ALPHA_A);
+#else
+        return DELTA_ALPHA_A;
+#endif
+    }
+    static inline float deltaAlphaB() {
+#if EEPROM_MODE!=0
+        return HAL::eprGetFloat(EPR_DELTA_ALPHA_B);
+#else
+        return DELTA_ALPHA_B;
+#endif
+    }
+    static inline float deltaAlphaC() {
+#if EEPROM_MODE!=0
+        return HAL::eprGetFloat(EPR_DELTA_ALPHA_C);
+#else
+        return DELTA_ALPHA_C;
+#endif
+    }
+    static inline float deltaRadiusCorrectionA() {
+#if EEPROM_MODE!=0
+        return HAL::eprGetFloat(EPR_DELTA_RADIUS_CORR_A);
+#else
+        return DELTA_RADIUS_CORRECTION_A;
+#endif
+    }
+    static inline float deltaRadiusCorrectionB() {
+#if EEPROM_MODE!=0
+        return HAL::eprGetFloat(EPR_DELTA_RADIUS_CORR_B);
+#else
+        return DELTA_RADIUS_CORRECTION_B;
+#endif
+    }
+    static inline float deltaRadiusCorrectionC() {
+#if EEPROM_MODE!=0
+        return HAL::eprGetFloat(EPR_DELTA_RADIUS_CORR_C);
+#else
+        return DELTA_RADIUS_CORRECTION_C;
 #endif
     }
 #endif

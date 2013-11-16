@@ -55,6 +55,7 @@
 // do not use program space memory with Due
 #define PROGMEM
 #define PGM_P const char *
+typedef char prog_char;
 #define PSTR(s) s
 #define pgm_read_byte_near(x) (*(int8_t*)x)
 #define pgm_read_byte(x) (*(int8_t*)x)
@@ -143,6 +144,7 @@
     PIO_Configure(g_APinDescription[pin].pPort, PIO_INPUT, g_APinDescription[pin].ulPin, 0) 
 #define	SET_OUTPUT(pin) PIO_Configure(g_APinDescription[pin].pPort, PIO_OUTPUT_1, \
     g_APinDescription[pin].ulPin, g_APinDescription[pin].ulPinConfiguration)
+#define TOGGLE(pin) WRITE(pin,!READ(pin))
 #define LOW         0
 #define HIGH        1
 
@@ -496,7 +498,18 @@ public:
        uint8_t response = spiTransfer(b);
        WRITE(SDSS, HIGH);
    }
-
+   
+   static inline void spiSend(const uint8_t* buf , size_t n)
+   {
+        uint8_t response;
+        if (n == 0) return;
+        WRITE(SDSS, LOW);
+        for (uint16_t i = 0; i < n; i++) {
+           response = spiTransfer(buf[i]);  
+       }
+       WRITE(SDSS, HIGH);
+   }
+   
    inline __attribute__((always_inline))
    static void spiSendBlock(uint8_t token, const uint8_t* buf)
    {
@@ -565,6 +578,18 @@ public:
         // clear status
         SPI0->SPI_RDR;
     }
+   static inline void spiSend(const uint8_t* buf , size_t n)
+   {
+       if (n == 0) return;
+       for (int i=0; i<n-1; i++)
+       {
+           while ((SPI0->SPI_SR & SPI_SR_TDRE) == 0);
+           SPI0->SPI_TDR = (uint32_t)buf[i] | SPI_PCS(0);
+           while ((SPI0->SPI_SR & SPI_SR_RDRF) == 0);
+           SPI0->SPI_RDR;
+       }
+       spiSend(buf[n-1]);
+   }
 
     // Read single byte from SPI
    static inline uint8_t spiReceive()

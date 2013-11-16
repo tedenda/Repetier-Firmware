@@ -58,6 +58,7 @@ void SDCard::automount()
             sdmode = false;
             UI_STATUS(UI_TEXT_SD_REMOVED);
             Com::printFLN(Com::tSDRemoved);
+            Printer::setMenuMode(MENU_MODE_SD_MOUNTED+MENU_MODE_SD_PAUSED+MENU_MODE_SD_PRINTING,false);
         }
     }
     else
@@ -66,7 +67,11 @@ void SDCard::automount()
         {
             UI_STATUS(UI_TEXT_SD_INSERTED);
             Com::printFLN(Com::tSDInserted);
+            Printer::setMenuMode(MENU_MODE_SD_MOUNTED,true);
             initsd();
+#if UI_DISPLAY_TYPE!=0
+            uid.executeAction(UI_ACTION_SD_PRINT+UI_ACTION_TOPMENU);
+#endif
         }
     }
 #endif
@@ -84,10 +89,14 @@ void SDCard::initsd()
         return;
     }
     sdactive = true;
+    Printer::setMenuMode(MENU_MODE_SD_MOUNTED,true);
+    if(!selectFile("init.g",true)) {
+        startPrint();
+    }
 #endif
 }
 
-void SDCard::write_command(GCode *code)
+void SDCard::writeCommand(GCode *code)
 {
     unsigned int sum1=0,sum2=0; // for fletcher-16 checksum
     uint8_t buf[100];
@@ -202,6 +211,9 @@ void SDCard::write_command(GCode *code)
     }
     buf[p++] = sum1;
     buf[p++] = sum2;
+    if(params == 128) {
+        Com::printErrorFLN(Com::tAPIDFinished);
+    } else
     file.write(buf,p);
     if (file.writeError)
     {
@@ -301,23 +313,28 @@ void SDCard::ls()
     Com::printFLN(Com::tEndFileList);
 }
 
-void SDCard::selectFile(char *filename)
+bool SDCard::selectFile(char *filename,bool silent)
 {
-    if(!sdactive) return;
+    if(!sdactive) return false;
     sdmode = false;
     file.close();
     fat.chdir();
     if (file.open(fat.vwd(),filename, O_READ))
     {
-        Com::printF(Com::tFileOpened,filename);
-        Com::printFLN(Com::tSpaceSizeColon,file.fileSize());
+        if(!silent) {
+            Com::printF(Com::tFileOpened,filename);
+            Com::printFLN(Com::tSpaceSizeColon,file.fileSize());
+        }
         sdpos = 0;
         filesize = file.fileSize();
         Com::printFLN(Com::tFileSelected);
+        return true;
     }
     else
     {
-        Com::printFLN(Com::tFileOpenFailed);
+        if(!silent)
+            Com::printFLN(Com::tFileOpenFailed);
+        return false;
     }
 }
 

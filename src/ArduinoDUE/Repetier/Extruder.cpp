@@ -31,9 +31,15 @@ uint8_t manage_monitor = 255; ///< Temp. we want to monitor with our host. 1+NUM
 unsigned int counter_periodical=0;
 volatile uint8_t execute_periodical=0;
 uint8_t counter_250ms=25;
+#if FEATURE_DITTO_PRINTING
+uint8_t Extruder::dittoMode = 0;
+#endif
 
 #ifdef SUPPORT_MAX6675
-extern int read_max6675(uint8_t ss_pin);
+extern int16_t read_max6675(uint8_t ss_pin);
+#endif
+#ifdef SUPPORT_MAX31855
+extern int16_t read_max31855(uint8_t ss_pin);
 #endif
 
 #if ANALOG_INPUTS>0
@@ -76,7 +82,7 @@ void Extruder::manageTemperatures()
 #if NUM_EXTRUDER>=2 && EXT0_EXTRUDER_COOLER_PIN==EXT1_EXTRUDER_COOLER_PIN && EXT0_EXTRUDER_COOLER_PIN>=0
             if(controller==1 && autotuneIndex!=0 && autotuneIndex!=1)
                 if(tempController[0]->currentTemperatureC<EXTRUDER_FAN_COOL_TEMP && tempController[0]->targetTemperatureC<EXTRUDER_FAN_COOL_TEMP &&
-                   tempController[1]->currentTemperatureC<EXTRUDER_FAN_COOL_TEMP && tempController[1]->targetTemperatureC<EXTRUDER_FAN_COOL_TEMP)
+                        tempController[1]->currentTemperatureC<EXTRUDER_FAN_COOL_TEMP && tempController[1]->targetTemperatureC<EXTRUDER_FAN_COOL_TEMP)
                     extruder[0].coolerPWM = 0;
                 else
                     extruder[0].coolerPWM = extruder[0].coolerSpeed;
@@ -91,7 +97,8 @@ void Extruder::manageTemperatures()
         {
             extruderTempErrors++;
             errorDetected = 1;
-            if(extruderTempErrors>10) { // Ignore short temporary failures
+            if(extruderTempErrors>10)   // Ignore short temporary failures
+            {
                 Printer::flag0 |= PRINTER_FLAG0_TEMPSENSOR_DEFECT;
                 reportTempsensorError();
             }
@@ -144,19 +151,19 @@ void Extruder::manageTemperatures()
         }
         else
 #endif
-        if(act->heatManager == 2)    // Bang-bang with reduced change frequency to save relais life
-        {
-            unsigned long time = HAL::timeInMilliseconds();
-            if (time - act->lastTemperatureUpdate > HEATED_BED_SET_INTERVAL)
+            if(act->heatManager == 2)    // Bang-bang with reduced change frequency to save relais life
+            {
+                unsigned long time = HAL::timeInMilliseconds();
+                if (time - act->lastTemperatureUpdate > HEATED_BED_SET_INTERVAL)
+                {
+                    pwm_pos[act->pwmIndex] = (on ? 255 : 0);
+                    act->lastTemperatureUpdate = time;
+                }
+            }
+            else     // Fast Bang-Bang fallback
             {
                 pwm_pos[act->pwmIndex] = (on ? 255 : 0);
-                act->lastTemperatureUpdate = time;
             }
-        }
-        else     // Fast Bang-Bang fallback
-        {
-            pwm_pos[act->pwmIndex] = (on ? 255 : 0);
-        }
 #ifdef MAXTEMP
         if(act->currentTemperatureC>MAXTEMP) // Force heater off if MAXTEMP is exceeded
             pwm_pos[act->pwmIndex] = 0;
@@ -280,8 +287,8 @@ void Extruder::initExtruder()
             if(!act->enableOn) HAL::digitalWrite(act->enablePin,HIGH);
         }
         act->tempControl.lastTemperatureUpdate = HAL::timeInMilliseconds();
-#ifdef SUPPORT_MAX6675
-        if(act->sensorType==101)
+#if defined(SUPPORT_MAX6675) || defined(SUPPORT_MAX31855)
+        if(act->tempControl.sensorType==101 || act->tempControl.sensorType==102)
         {
             WRITE(SCK_PIN,0);
             SET_OUTPUT(SCK_PIN);
@@ -289,6 +296,8 @@ void Extruder::initExtruder()
             SET_OUTPUT(MOSI_PIN);
             WRITE(MISO_PIN,1);
             SET_INPUT(MISO_PIN);
+            SET_OUTPUT(SS);
+            WRITE(SS,HIGH);
             HAL::digitalWrite(act->tempControl.sensorPin,1);
             HAL::pinMode(act->tempControl.sensorPin,OUTPUT);
         }
@@ -328,10 +337,8 @@ void Extruder::selectExtruderById(uint8_t extruderId)
         executeSelect = true;
     }
 #endif
-    Extruder::current->extrudePosition = Printer::currentPositionSteps[3];
+    Extruder::current->extrudePosition = Printer::currentPositionSteps[E_AXIS];
     Extruder::current = &extruder[extruderId];
-    long dx = -Printer::offsetX*Printer::axisStepsPerMM[0]-Extruder::current->xOffset;
-    long dy = -Printer::offsetY*Printer::axisStepsPerMM[1]-Extruder::current->yOffset;
 #ifdef SEPERATE_EXTRUDER_POSITIONS
     // Use seperate extruder positions only if beeing told. Slic3r e.g. creates a continuous extruder position increment
     Printer::currentPositionSteps[E_AXIS] = Extruder::current->extrudePosition;
@@ -361,14 +368,13 @@ void Extruder::selectExtruderById(uint8_t extruderId)
     if(fmax<Printer::maxFeedrate[E_AXIS]) Printer::maxFeedrate[E_AXIS] = fmax;
 #endif
     Extruder::current->tempControl.updateTempControlVars();
-    if(dx || dy)
-    {
-        float oldfeedrate = Printer::feedrate;
-        PrintLine::moveRelativeDistanceInSteps(dx,dy,0,0,Printer::homingFeedrate[0],true,ALWAYS_CHECK_ENDSTOPS);
-        Printer::feedrate = oldfeedrate;
-    }
-    Printer::offsetX = -Extruder::current->xOffset*Printer::invAxisStepsPerMM[0];
-    Printer::offsetY = -Extruder::current->yOffset*Printer::invAxisStepsPerMM[1];
+    float cx,cy,cz;
+    Printer::realPosition(cx,cy,cz);
+    float oldfeedrate = Printer::feedrate;
+    Printer::offsetX = -Extruder::current->xOffset*Printer::invAxisStepsPerMM[X_AXIS];
+    Printer::offsetY = -Extruder::current->yOffset*Printer::invAxisStepsPerMM[Y_AXIS];
+    Printer::moveToReal(cx,cy,cz,IGNORE_COORDINATE,Printer::homingFeedrate[X_AXIS]);
+    Printer::feedrate = oldfeedrate;
     Printer::updateCurrentPosition();
 #if NUM_EXTRUDER>1
     if(executeSelect) // Run only when changing
@@ -386,11 +392,19 @@ void Extruder::setTemperatureForExtruder(float temp_celsius,uint8_t extr)
 #endif
     if(temp_celsius<0) temp_celsius=0;
     TemperatureController *tc = tempController[extr];
-    if(temp_celsius==tc->targetTemperatureC) return;
+    //if(temp_celsius==tc->targetTemperatureC) return;
     tc->setTargetTemperature(temp_celsius);
     if(temp_celsius>=EXTRUDER_FAN_COOL_TEMP) extruder[extr].coolerPWM = extruder[extr].coolerSpeed;
     Com::printF(Com::tTargetExtr,extr,0);
     Com::printFLN(Com::tColon,temp_celsius,0);
+#if FEATURE_DITTO_PRINTING
+    if(Extruder::dittoMode && extr == 0)
+    {
+        TemperatureController *tc2 = tempController[1];
+        tc2->setTargetTemperature(temp_celsius);
+        if(temp_celsius>=EXTRUDER_FAN_COOL_TEMP) extruder[1].coolerPWM = extruder[1].coolerSpeed;
+    }
+#endif // FEATURE_DITTO_PRINTING
     bool alloff = true;
     for(uint8_t i=0; i<NUM_EXTRUDER; i++)
         if(tempController[i]->targetTemperatureC>15) alloff = false;
@@ -427,6 +441,13 @@ void Extruder::disableCurrentExtruderMotor()
 {
     if(Extruder::current->enablePin > -1)
         digitalWrite(Extruder::current->enablePin,!Extruder::current->enableOn);
+#if FEATURE_DITTO_PRINTING
+    if(Extruder::dittoMode)
+    {
+        if(extruder[1].enablePin > -1)
+            digitalWrite(extruder[1].enablePin,!extruder[1].enableOn);
+    }
+#endif
 }
 #define NUMTEMPS_1 28
 // Epcos B57560G0107F000
@@ -533,8 +554,8 @@ const short * const temptables[12] PROGMEM = {(short int *)&temptable_1[0][0],(s
         ,(short int *)&temptable_12[0][0]
                                              };
 const uint8_t temptables_num[12] PROGMEM = {NUMTEMPS_1,NUMTEMPS_2,NUMTEMPS_3,NUMTEMPS_4,NUM_TEMPS_USERTHERMISTOR0,NUM_TEMPS_USERTHERMISTOR1,NUM_TEMPS_USERTHERMISTOR2,NUMTEMPS_8,
-                              NUMTEMPS_9,NUMTEMPS_10,NUMTEMPS_11,NUMTEMPS_12
-                                        };
+                                 NUMTEMPS_9,NUMTEMPS_10,NUMTEMPS_11,NUMTEMPS_12
+                                           };
 
 
 void TemperatureController::updateCurrentTemperature()
@@ -573,6 +594,10 @@ void TemperatureController::updateCurrentTemperature()
     case 101: // MAX6675
         currentTemperature = read_max6675(sensorPin);
         break;
+#endif
+#ifdef SUPPORT_MAX31855
+    case 102: // MAX31855
+        currentTemperature = read_max31855(sensorPin);
 #endif
     default:
         currentTemperature = 4095; // unknown method, return high value to switch heater off for safety
@@ -655,7 +680,12 @@ void TemperatureController::updateCurrentTemperature()
         break;
 #ifdef SUPPORT_MAX6675
     case 101: // MAX6675
-        currentTemperatureC = currentTemperature /4;
+        currentTemperatureC = (float)currentTemperature /4.0;
+        break;
+#endif
+#ifdef SUPPORT_MAX31855
+    case 102: // MAX31855
+        currentTemperatureC = (float)currentTemperature /4.0;
         break;
 #endif
 #if defined(USE_GENERIC_THERMISTORTABLE_1) || defined(USE_GENERIC_THERMISTORTABLE_2) || defined(USE_GENERIC_THERMISTORTABLE_3)
@@ -680,6 +710,7 @@ void TemperatureController::updateCurrentTemperature()
         short oldraw = temptable[0];
         short oldtemp = temptable[1];
         short newraw,newtemp;
+        currentTemperature = (1023<<(2-ANALOG_REDUCE_BITS))-currentTemperature;
         while(i<GENERIC_THERM_NUM_ENTRIES*2)
         {
             newraw = temptable[i++];
@@ -783,6 +814,11 @@ void TemperatureController::setTargetTemperature(float target)
         targetTemperature = temp * 4;
         break;
 #endif
+#ifdef SUPPORT_MAX31855
+    case 102:  // defined HEATER_USES_MAX31855
+        targetTemperature = temp * 4;
+        break;
+#endif
 #if defined(USE_GENERIC_THERMISTORTABLE_1) || defined(USE_GENERIC_THERMISTORTABLE_2) || defined(USE_GENERIC_THERMISTORTABLE_3)
     case 97:
     case 98:
@@ -839,7 +875,7 @@ void Extruder::disableAllHeater()
 }
 
 #ifdef TEMP_PID
-void TemperatureController::autotunePID(float temp,uint8_t controllerId)
+void TemperatureController::autotunePID(float temp,uint8_t controllerId,bool storeValues)
 {
     float currentTemp;
     int cycles=0;
@@ -965,6 +1001,14 @@ void TemperatureController::autotunePID(float temp,uint8_t controllerId)
         {
             Com::printInfoFLN(Com::tAPIDFinished);
             Extruder::disableAllHeater();
+            if(storeValues)
+            {
+                pidDGain = Kp;
+                pidIGain = Ki;
+                pidDGain = Kd;
+                heatManager = 1;
+                EEPROM::storeDataIntoEEPROM();
+            }
             return;
         }
         UI_MEDIUM;
@@ -1006,29 +1050,53 @@ bool reportTempsensorError()
 }
 
 #ifdef SUPPORT_MAX6675
-int read_max6675(uint8_t ss_pin)
+int16_t read_max6675(uint8_t ss_pin)
 {
-    int max6675_temp = 0;
-#ifdef	PRR
-    PRR &= ~(1<<PRSPI);
-#elif defined PRR0
-    PRR0 &= ~(1<<PRSPI);
-#endif
-    SPCR = (1<<MSTR) | (1<<SPE) | (1<<SPR0);
+    int16_t max6675_temp = 0;
+    HAL::spiInit(1);
     HAL::digitalWrite(ss_pin, 0);  // enable TT_MAX6675
     HAL::delayMicroseconds(1);    // ensure 100ns delay - a bit extra is fine
-    SPDR = 0;   // read MSB
-    while ((SPSR & (1<<SPIF)) == 0);
-    max6675_temp = SPDR;
+    max6675_temp = HAL::spiReceive(0);
     max6675_temp <<= 8;
-    SPDR = 0; // read LSB
-    while ((SPSR & (1<<SPIF)) == 0);
-    HAL::max6675_temp |= SPDR;
+    HAL::max6675_temp |= HAL::spiReceive(0);
     HAL::digitalWrite(ss_pin, 1);  // disable TT_MAX6675
     return max6675_temp & 4 ? 2000 : max6675_temp >> 3; // thermocouple open?
 }
 #endif
+#ifdef SUPPORT_MAX31855
+int16_t read_max31855(uint8_t ss_pin)
+{
+    uint32_t data = 0;
+    int16_t temperature;
+    HAL::spiInit(1);
+    HAL::digitalWrite(ss_pin, 0);  // enable TT_MAX31855
+    HAL::delayMicroseconds(1);    // ensure 100ns delay - a bit extra is fine
 
+    for (unsigned short byte = 0; byte < 4; byte++)
+    {
+        data <<= 8;
+        data |= HAL::spiReceive();
+    }
+
+    HAL::digitalWrite(ss_pin, 1);  // disable TT_MAX31855
+
+    //Process temp
+    if (data & 0x00010000)
+        return 20000; //Some form of error.
+    else
+    {
+        data = data >> 18;
+        temperature = data & 0x00001FFF;
+
+        if (data & 0x00002000)
+        {
+            data = ~data;
+            temperature = -1 * ((data & 0x00001FFF) + 1);
+        }
+    }
+    return temperature;
+}
+#endif
 Extruder *Extruder::current;
 
 #if NUM_EXTRUDER>0
@@ -1212,7 +1280,11 @@ TemperatureController *tempController[NUM_TEMPERATURE_LOOPS] =
     ,&extruder[5].tempControl
 #endif
 #if HAVE_HEATED_BED
+#if NUM_EXTRUDER==0
+    &heatedBedController
+#else
     ,&heatedBedController
+#endif
 #endif
 };
 

@@ -22,7 +22,7 @@
 #ifndef _REPETIER_H
 #define _REPETIER_H
 
-#define REPETIER_VERSION "0.90beta"
+#define REPETIER_VERSION "0.90"
 
 // ##########################################################################################
 // ##                                  Debug configuration                                 ##
@@ -50,6 +50,9 @@ usage or for seraching for memory induced errors. Switch it off for production, 
 /** This enables code to make M666 drop an ok, so you get problems with communication. It is to test host robustness. */
 #define DEBUG_COM_ERRORS
 //#define DEBUG_DELTA_OVERFLOW
+// Add write debug to quicksettings menu to debug some vars during hang
+//#define DEBUG_PRINT
+//#define DEBUG_SPLIT
 
 // Uncomment the following line to enable debugging. You can better control debugging below the following line
 //#define DEBUG
@@ -74,6 +77,12 @@ usage or for seraching for memory induced errors. Switch it off for production, 
 #define ANALYZER_ON(a)
 #define ANALYZER_OFF(a)
 #endif
+
+#define X_AXIS 0
+#define Y_AXIS 1
+#define Z_AXIS 2
+#define E_AXIS 3
+#define VIRTUAL_AXIS 4
 
 
 // Bits of the ADC converter
@@ -100,6 +109,12 @@ usage or for seraching for memory induced errors. Switch it off for production, 
 #define HOME_ORDER_ZYX 6
 
 #include "Configuration.h"
+
+#if DRIVE_SYSTEM==3 || DRIVE_SYSTEM==4
+#define NONLINEAR_SYSTEM true
+#else
+#define NONLINEAR_SYSTEM false
+#endif
 
 #ifdef FEATURE_Z_PROBE
 #define MANUAL_CONTROL true
@@ -216,6 +231,11 @@ usage or for seraching for memory induced errors. Switch it off for production, 
 #define  ANALOG_INPUT_CHANNELS {EXT0_ANALOG_CHANNEL EXT1_ANALOG_CHANNEL EXT2_ANALOG_CHANNEL EXT3_ANALOG_CHANNEL EXT4_ANALOG_CHANNEL EXT5_ANALOG_CHANNEL BED_ANALOG_CHANNEL}
 #endif
 
+#define MENU_MODE_SD_MOUNTED 1
+#define MENU_MODE_SD_PRINTING 2
+#define MENU_MODE_SD_PAUSED 4
+#define MENU_MODE_FAN_RUNNING 8
+
 #include "HAL.h"
 #include "gcode.h"
 
@@ -309,28 +329,29 @@ extern float maxadvspeed;
 void manage_inactivity(uint8_t debug);
 
 extern void finishNextSegment();
-#if DRIVE_SYSTEM==3
+#if NONLINEAR_SYSTEM
 extern uint8_t transformCartesianStepsToDeltaSteps(long cartesianPosSteps[], long deltaPosSteps[]);
-extern void set_delta_position(long xaxis, long yaxis, long zaxis);
-extern float rodMaxLength;
-extern void split_delta_move(uint8_t check_endstops,uint8_t pathOptimize, uint8_t softEndstop);
 #ifdef SOFTWARE_LEVELING
 extern void calculatePlane(long factors[], long p1[], long p2[], long p3[]);
 extern float calcZOffset(long factors[], long pointX, long pointY);
 #endif
 #endif
 extern void linear_move(long steps_remaining[]);
+#ifndef FEATURE_DITTO_PRINTING
+#define FEATURE_DITTO_PRINTING false
+#endif
+#if FEATURE_DITTO_PRINTING && NUM_EXTRUDER!=2
+#error Ditto printing requires exactly 2 extruder.
+#endif
 
 
-
-extern unsigned long previousMillisCmd;
-extern unsigned long maxInactiveTime;
-extern unsigned long stepperInactiveTime;
+extern millis_t previousMillisCmd;
+extern millis_t maxInactiveTime;
+extern millis_t stepperInactiveTime;
 
 extern void setupTimerInterrupt();
-extern void current_control_init();
-extern void microstep_init();
-extern void check_mem();
+extern void motorCurrentControlInit();
+extern void microstepInit();
 
 #include "Printer.h"
 #include "motion.h"
@@ -375,8 +396,8 @@ public:
   bool savetosd;
   SDCard();
   void initsd();
-  void write_command(GCode *code);
-  void selectFile(char *filename);
+  void writeCommand(GCode *code);
+  bool selectFile(char *filename,bool silent=false);
   inline void mount() {
     sdmode = false;
     initsd();
@@ -384,9 +405,10 @@ public:
   inline void unmount() {
     sdmode = false;
     sdactive = false;
+    Printer::setMenuMode(MENU_MODE_SD_MOUNTED+MENU_MODE_SD_PAUSED+MENU_MODE_SD_PRINTING,false);
   }
-  inline void startPrint() {if(sdactive) sdmode = true; }
-  inline void pausePrint() {sdmode = false;}
+  inline void startPrint() {if(sdactive) sdmode = true;Printer::setMenuMode(MENU_MODE_SD_PRINTING,true); Printer::setMenuMode(MENU_MODE_SD_PAUSED,false);}
+  inline void pausePrint() {sdmode = false;Printer::setMenuMode(MENU_MODE_SD_PAUSED,true);}
   inline void setIndex(uint32_t  newpos) { if(!sdactive) return; sdpos = newpos;file.seekSet(sdpos);}
   void printStatus();
   void ls();
@@ -408,19 +430,9 @@ extern SDCard sd;
 extern volatile int waitRelax; // Delay filament relax at the end of print, could be a simple timeout
 extern void updateStepsParameter(PrintLine *p/*,uint8_t caller*/);
 
-#define X_AXIS 0
-#define Y_AXIS 1
-#define Z_AXIS 2
-#define E_AXIS 3
 
-#if DRIVE_SYSTEM==3
-#define SIN_60 0.8660254037844386
-#define COS_60 0.5
-
-
+#if NONLINEAR_SYSTEM
 #define NUM_AXIS 4
-#define VIRTUAL_AXIS 4
-
 #endif
 
 #define STR(s) #s

@@ -152,6 +152,7 @@
 #define UI_ACTION_EXTRUDER2_TEMP        1103
 #define UI_ACTION_SELECT_EXTRUDER2      1104
 #define UI_ACTION_WRITE_DEBUG           1105
+#define UI_ACTION_FANSPEED              1106
 
 #define UI_ACTION_MENU_XPOS             4000
 #define UI_ACTION_MENU_YPOS             4001
@@ -185,12 +186,13 @@
 // Load basic language definition to make sure all values are defined
 #include "uilang.h"
 
-#include "Configuration.h"
-
 typedef struct {
   const char *text; // Menu text
-  unsigned char menuType; // 0 = Info, 1 = Headline, 2 = submenu ref, 3 = direct action command, 4 = modify action command
-  unsigned int action;
+  uint8_t menuType; // 0 = Info, 1 = Headline, 2 = submenu ref, 3 = direct action command, 4 = modify action command
+  uint16_t action;
+  uint8_t filter; // allows dynamic menu filtering based on Printer::menuMode bits set.
+  uint8_t nofilter; // Hide if one of these bits are set
+  bool showEntry() const;
 } const UIMenuEntry;
 
 typedef struct {
@@ -278,36 +280,40 @@ extern const int8_t encoder_table[16] PROGMEM ;
 #define UI_STRING(name,text) const char PROGMEM name[] = text;
 
 #define UI_PAGE4(name,row1,row2,row3,row4) UI_STRING(name ## _1txt,row1);UI_STRING(name ## _2txt,row2);UI_STRING(name ## _3txt,row3);UI_STRING(name ## _4txt,row4);\
-  UIMenuEntry name ## _1 PROGMEM ={name ## _1txt,0,0};\
-  UIMenuEntry name ## _2 PROGMEM ={name ## _2txt,0,0};\
-  UIMenuEntry name ## _3 PROGMEM ={name ## _3txt,0,0};\
-  UIMenuEntry name ## _4 PROGMEM ={name ## _4txt,0,0};\
+  UIMenuEntry name ## _1 PROGMEM ={name ## _1txt,0,0,0,0};\
+  UIMenuEntry name ## _2 PROGMEM ={name ## _2txt,0,0,0,0};\
+  UIMenuEntry name ## _3 PROGMEM ={name ## _3txt,0,0,0,0};\
+  UIMenuEntry name ## _4 PROGMEM ={name ## _4txt,0,0,0,0};\
   const UIMenuEntry * const name ## _entries [] PROGMEM = {&name ## _1,&name ## _2,&name ## _3,&name ## _4};\
   const UIMenu name PROGMEM = {0,0,4,name ## _entries};
 #define UI_PAGE2(name,row1,row2) UI_STRING(name ## _1txt,row1);UI_STRING(name ## _2txt,row2);\
-  UIMenuEntry name ## _1 PROGMEM ={name ## _1txt,0,0};\
-  UIMenuEntry name ## _2 PROGMEM ={name ## _2txt,0,0};\
+  UIMenuEntry name ## _1 PROGMEM ={name ## _1txt,0,0,0,0};\
+  UIMenuEntry name ## _2 PROGMEM ={name ## _2txt,0,0,0,0};\
   const UIMenuEntry * const name ## _entries[] PROGMEM = {&name ## _1,&name ## _2};\
   const UIMenu name PROGMEM = {0,0,2,name ## _entries};
 #define UI_MENU_ACTION4C(name,action,rows) UI_MENU_ACTION4(name,action,rows)
 #define UI_MENU_ACTION2C(name,action,rows) UI_MENU_ACTION2(name,action,rows)
 #define UI_MENU_ACTION4(name,action,row1,row2,row3,row4) UI_STRING(name ## _1txt,row1);UI_STRING(name ## _2txt,row2);UI_STRING(name ## _3txt,row3);UI_STRING(name ## _4txt,row4);\
-  UIMenuEntry name ## _1 PROGMEM ={name ## _1txt,0,0};\
-  UIMenuEntry name ## _2 PROGMEM ={name ## _2txt,0,0};\
-  UIMenuEntry name ## _3 PROGMEM ={name ## _3txt,0,0};\
-  UIMenuEntry name ## _4 PROGMEM ={name ## _4txt,0,0};\
+  UIMenuEntry name ## _1 PROGMEM ={name ## _1txt,0,0,0,0};\
+  UIMenuEntry name ## _2 PROGMEM ={name ## _2txt,0,0,0,0};\
+  UIMenuEntry name ## _3 PROGMEM ={name ## _3txt,0,0,0,0};\
+  UIMenuEntry name ## _4 PROGMEM ={name ## _4txt,0,0,0,0};\
   const UIMenuEntry * const name ## _entries[] PROGMEM = {&name ## _1,&name ## _2,&name ## _3,&name ## _4};\
   const UIMenu name PROGMEM = {3,action,4,name ## _entries};
 #define UI_MENU_ACTION2(name,action,row1,row2) UI_STRING(name ## _1txt,row1);UI_STRING(name ## _2txt,row2);\
-  UIMenuEntry name ## _1 PROGMEM ={name ## _1txt,0,0};\
-  UIMenuEntry name ## _2 PROGMEM ={name ## _2txt,0,0};\
+  UIMenuEntry name ## _1 PROGMEM ={name ## _1txt,0,0,0,0};\
+  UIMenuEntry name ## _2 PROGMEM ={name ## _2txt,0,0,0,0};\
   const UIMenuEntry * const name ## _entries[] PROGMEM = {&name ## _1,&name ## _2};\
   const UIMenu name PROGMEM = {3,action,2,name ## _entries};
-#define UI_MENU_HEADLINE(name,text) UI_STRING(name ## _txt,text);UIMenuEntry name PROGMEM = {name ## _txt,1,0};
-#define UI_MENU_CHANGEACTION(name,row,action) UI_STRING(name ## _txt,row);UIMenuEntry name PROGMEM = {name ## _txt,4,action};
-#define UI_MENU_ACTIONCOMMAND(name,row,action) UI_STRING(name ## _txt,row);UIMenuEntry name PROGMEM = {name ## _txt,3,action};
-#define UI_MENU_ACTIONSELECTOR(name,row,entries) UI_STRING(name ## _txt,row);UIMenuEntry name PROGMEM = {name ## _txt,2,(unsigned int)&entries};
-#define UI_MENU_SUBMENU(name,row,entries) UI_STRING(name ## _txt,row);UIMenuEntry name PROGMEM = {name ## _txt,2,(unsigned int)&entries};
+#define UI_MENU_HEADLINE(name,text) UI_STRING(name ## _txt,text);UIMenuEntry name PROGMEM = {name ## _txt,1,0,0,0};
+#define UI_MENU_CHANGEACTION(name,row,action) UI_STRING(name ## _txt,row);UIMenuEntry name PROGMEM = {name ## _txt,4,action,0,0};
+#define UI_MENU_ACTIONCOMMAND(name,row,action) UI_STRING(name ## _txt,row);UIMenuEntry name PROGMEM = {name ## _txt,3,action,0,0};
+#define UI_MENU_ACTIONSELECTOR(name,row,entries) UI_STRING(name ## _txt,row);UIMenuEntry name PROGMEM = {name ## _txt,2,(unsigned int)&entries,0,0};
+#define UI_MENU_SUBMENU(name,row,entries) UI_STRING(name ## _txt,row);UIMenuEntry name PROGMEM = {name ## _txt,2,(unsigned int)&entries,0,0};
+#define UI_MENU_CHANGEACTION_FILTER(name,row,action,filter,nofilter) UI_STRING(name ## _txt,row);UIMenuEntry name PROGMEM = {name ## _txt,4,action,filter,nofilter};
+#define UI_MENU_ACTIONCOMMAND_FILTER(name,row,action,filter,nofilter) UI_STRING(name ## _txt,row);UIMenuEntry name PROGMEM = {name ## _txt,3,action,filter,nofilter};
+#define UI_MENU_ACTIONSELECTOR_FILTER(name,row,entries,filter,nofilter) UI_STRING(name ## _txt,row);UIMenuEntry name PROGMEM = {name ## _txt,2,(unsigned int)&entries,filter,nofilter};
+#define UI_MENU_SUBMENU_FILTER(name,row,entries,filter,nofilter) UI_STRING(name ## _txt,row);UIMenuEntry name PROGMEM = {name ## _txt,2,(unsigned int)&entries,filter,nofilter};
 #define UI_MENU(name,items,itemsCnt) const UIMenuEntry * const name ## _entries[] PROGMEM = items;const UIMenu name PROGMEM = {2,0,itemsCnt,name ## _entries}
 #define UI_MENU_FILESELECT(name,items,itemsCnt) const UIMenuEntry * const name ## _entries[] PROGMEM = items;const UIMenu name PROGMEM = {1,0,itemsCnt,name ## _entries}
 
@@ -339,7 +345,7 @@ class UIDisplay {
     unsigned long nextRepeat; // Time of next autorepeat
     unsigned int outputMask; // Output mask for backlight, leds etc.
     int repeatDuration; // Time beween to actions if autorepeat is enabled
-    void addInt(int value,uint8_t digits); // Print int into printCols
+    void addInt(int value,uint8_t digits,char fillChar=' '); // Print int into printCols
     void addLong(long value,char digits);
     void addFloat(float number, char fixdigits,uint8_t digits);
     void addStringP(PGM_P text);
@@ -391,7 +397,7 @@ inline void ui_check_slow_encoder() {}
 void ui_check_slow_keys(int &action) {}
 #endif
 #endif
-#if FEATURE_CONTROLLER==2 // reprapdiscount smartcontroller
+#if FEATURE_CONTROLLER==2 || FEATURE_CONTROLLER==10 // reprapdiscount smartcontroller (2) gadgets3d (10)
 #define UI_HAS_KEYS 1
 #define UI_HAS_BACK_KEY 0
 #define UI_DISPLAY_TYPE 1
@@ -399,6 +405,24 @@ void ui_check_slow_keys(int &action) {}
 #define BEEPER_TYPE 1
 #define UI_COLS 20
 #define UI_ROWS 4
+#if FEATURE_CONTROLLER==10 // Gadgets3d shield
+#define BEEPER_PIN             33
+#define UI_DISPLAY_RS_PIN      16
+#define UI_DISPLAY_RW_PIN      -1
+#define UI_DISPLAY_ENABLE_PIN  17
+#define UI_DISPLAY_D0_PIN      23
+#define UI_DISPLAY_D1_PIN      25
+#define UI_DISPLAY_D2_PIN      27
+#define UI_DISPLAY_D3_PIN      29
+#define UI_DISPLAY_D4_PIN      23
+#define UI_DISPLAY_D5_PIN      25
+#define UI_DISPLAY_D6_PIN      27
+#define UI_DISPLAY_D7_PIN      29
+#define UI_ENCODER_A           35
+#define UI_ENCODER_B           37
+#define UI_ENCODER_CLICK       31
+#define UI_RESET_PIN           41
+#else  // Smartcontroller
 #if MOTHERBOARD==80 // Rumba has different pins as RAMPS!
 #define BEEPER_PIN             44
 #define UI_DISPLAY_RS_PIN      19
@@ -434,6 +458,7 @@ void ui_check_slow_keys(int &action) {}
 #define UI_ENCODER_CLICK       35
 #define UI_RESET_PIN           41
 #endif
+#endif
 #define UI_DELAYPERCHAR 320
 #define UI_INVERT_MENU_DIRECTION false
 #ifdef UI_MAIN
@@ -450,7 +475,7 @@ void ui_check_keys(int &action) {
 inline void ui_check_slow_encoder() {}
 void ui_check_slow_keys(int &action) {}
 #endif
-#endif // Controller 2
+#endif // Controller 2 and 10
 
 #if FEATURE_CONTROLLER==3 // Adafruit RGB controller
 #define UI_HAS_KEYS 1
@@ -758,8 +783,96 @@ void ui_check_slow_keys(int &action) {}
 #endif
 #endif // Controller 7
 
-#if FEATURE_CONTROLLER>0
+#if FEATURE_CONTROLLER==8 || FEATURE_CONTROLLER==9 // PiBot Expansion Port
 
+#define UI_HAS_KEYS 1
+#define UI_HAS_BACK_KEY 1
+#define UI_DISPLAY_TYPE 1
+#define UI_DISPLAY_CHARSET 1
+#define UI_DELAYPERCHAR 320
+#define UI_INVERT_MENU_DIRECTION true
+#define BEEPER_SHORT_SEQUENCE 6,2 // Needs longer beep sequence
+#define BEEPER_LONG_SEQUENCE 24,8
+#define BEEPER_TYPE 1
+#define BEEPER_TYPE_INVERTING true
+
+#if FEATURE_CONTROLLER==9   // 16x02 Display
+ #define UI_COLS 16
+ #define UI_ROWS 2
+#else  ////20x04 Display
+ #define UI_COLS 20
+ #define UI_ROWS 4
+#endif
+
+#ifdef PiBot_V_1_4
+#define BEEPER_PIN             31
+#define UI_DISPLAY_RS_PIN      45
+#define UI_DISPLAY_RW_PIN      -1
+#define UI_DISPLAY_ENABLE_PIN  44
+#define UI_DISPLAY_D0_PIN      43
+#define UI_DISPLAY_D1_PIN      42
+#define UI_DISPLAY_D2_PIN      19
+#define UI_DISPLAY_D3_PIN      18
+#define UI_DISPLAY_D4_PIN      43
+#define UI_DISPLAY_D5_PIN      42
+#define UI_DISPLAY_D6_PIN      19
+#define UI_DISPLAY_D7_PIN      18
+#define UI_ENCODER_A           61
+#define UI_ENCODER_B           62
+#define UI_ENCODER_CLICK       63
+#define UI_RESET_PIN           28
+#define UI_DELAYPERCHAR 320
+#define UI_BUTTON_OK       49
+#define UI_BUTTON_NEXT     48
+#define UI_BUTTON_PREVIOUS 47
+#define UI_BUTTON_BACK     46
+#define UI_BUTTON_SD_PRINT 29
+#else
+#define BEEPER_PIN             37
+#define UI_DISPLAY_RS_PIN      16
+#define UI_DISPLAY_RW_PIN      -1
+#define UI_DISPLAY_ENABLE_PIN  17
+#define UI_DISPLAY_D0_PIN      23
+#define UI_DISPLAY_D1_PIN      25
+#define UI_DISPLAY_D2_PIN      27
+#define UI_DISPLAY_D3_PIN      29
+#define UI_DISPLAY_D4_PIN      23
+#define UI_DISPLAY_D5_PIN      25
+#define UI_DISPLAY_D6_PIN      27
+#define UI_DISPLAY_D7_PIN      29
+#define UI_ENCODER_A           33
+#define UI_ENCODER_B           31
+#define UI_ENCODER_CLICK       35
+#define UI_RESET_PIN           41
+#define UI_DELAYPERCHAR 320
+#define UI_BUTTON_OK       4
+#define UI_BUTTON_NEXT     6
+#define UI_BUTTON_PREVIOUS 5
+#define UI_BUTTON_BACK     11
+#define UI_BUTTON_SD_PRINT 42
+#endif
+
+#ifdef UI_MAIN
+void ui_init_keys() {
+  UI_KEYS_INIT_BUTTON_LOW(UI_BUTTON_OK); // push button, connects gnd to pin
+  UI_KEYS_INIT_BUTTON_LOW(UI_BUTTON_NEXT);
+  UI_KEYS_INIT_BUTTON_LOW(UI_BUTTON_PREVIOUS);
+  UI_KEYS_INIT_BUTTON_LOW(UI_BUTTON_BACK);
+  UI_KEYS_INIT_BUTTON_LOW(UI_BUTTON_SD_PRINT);
+}
+void ui_check_keys(int &action) {
+ UI_KEYS_BUTTON_LOW(UI_BUTTON_OK,UI_ACTION_OK); // push button, connects gnd to pin
+ UI_KEYS_BUTTON_LOW(UI_BUTTON_NEXT,UI_ACTION_NEXT); // push button, connects gnd to pin
+ UI_KEYS_BUTTON_LOW(UI_BUTTON_PREVIOUS,UI_ACTION_PREVIOUS); // push button, connects gnd to pin
+ UI_KEYS_BUTTON_LOW(UI_BUTTON_BACK,UI_ACTION_BACK); // push button, connects gnd to pin
+ UI_KEYS_BUTTON_LOW(UI_BUTTON_SD_PRINT,UI_ACTION_SD_PRINT ); // push button, connects gnd to pin
+}
+inline void ui_check_slow_encoder() {}
+void ui_check_slow_keys(int &action) {}
+#endif
+#endif
+
+#if FEATURE_CONTROLLER>0
 #if UI_ROWS==4
 #if UI_COLS==16
 #define UI_LINE_OFFSETS {0,0x40,0x10,0x50} // 4x16
@@ -798,7 +911,7 @@ void ui_check_slow_keys(int &action) {}
 #endif
 
 #define UI_INITIALIZE uid.initialize();
-#define UI_FAST /*if(pwm_count & 4)*/ {uid.fastAction();}
+#define UI_FAST if(pwm_count & 4) {uid.fastAction();}
 #define UI_MEDIUM uid.mediumAction();
 #define UI_SLOW uid.slowAction();
 #define UI_STATUS(status) uid.setStatusP(PSTR(status));
